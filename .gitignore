@@ -1,0 +1,17 @@
+# Ambiente Virtual
+ambiente_do_cerebro/
+venv/
+*.venv
+
+# Arquivos Python compilados e caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de configuração local (NÃO COMITAR!)
+.env
+
+# Arquivos de IDEs e editores
+.vscode/
+.idea/
+*.swp
