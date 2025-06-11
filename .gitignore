@@ -1,17 +1,80 @@
-# Ambiente Virtual
-ambiente_do_cerebro/
-venv/
-*.venv
-
-# Arquivos Python compilados e caches
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Arquivos de configuração local (NÃO COMITAR!)
-.env
+# C extensions
+*.so
 
-# Arquivos de IDEs e editores
-.vscode/
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are created by a PyInstaller build.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+# SEU AMBIENTE VIRTUAL (AJUSTE O NOME DA PASTA SE FOR DIFERENTE)
+ambiente_do_cerebro/ 
+
+# SQLite databases
+*.sqlite3
+*.db3
+palcoapp_dev.db # Seu banco de dev local, se for SQLite
+
+# IDE / Editor specific files
 .idea/
-*.swp
+.vscode/
+*.sublime-project
+*.sublime-workspace
+nbproject/
+
+# Static files (se você tiver uma pasta 'static' com arquivos gerados que não quer no git)
+# Se a sua pasta static/profile_pics for onde o backend salva as fotos, 
+# você pode querer ignorar o *conteúdo* dela, mas não a pasta em si.
+# Ou, se o Render for construir e salvar lá, talvez não precise ignorar.
+# Por enquanto, vamos focar em ignorar o ambiente virtual e .env
