@@ -4,17 +4,20 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
-from typing import Annotated, List, Optional # Garanta que Optional e List estão aqui
+from typing import Annotated, List, Optional 
 import shutil
 import uuid
+# import logging # Opcional: para logging mais robusto
 
-from .database import engine, get_db # Usando seu get_db
+from .database import engine, get_db 
 from . import models, schemas, crud
 from .security import (
     criar_access_token, ACCESS_TOKEN_EXPIRE_MINUTES,
     obter_payload_token_musico, obter_payload_token_fan
 )
 import datetime
+
+# logger = logging.getLogger(__name__) # Opcional
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -31,8 +34,6 @@ if not os.path.exists("app/static/profile_pics"):
     os.makedirs("app/static/profile_pics")
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-# Isso significa que arquivos dentro de 'app/static/' estarão acessíveis via '/static/...' na URL
-# Ex: app/static/profile_pics/imagem.jpg -> http://127.0.0.1:8000/static/profile_pics/imagem.jpg
 
 # --- Funções de Dependência para Obter Usuários Logados ---
 async def obter_musico_logado(token_payload: Annotated[schemas.TokenData, Depends(obter_payload_token_musico)], db: Annotated[Session, Depends(get_db)]) -> models.Musico:
@@ -52,64 +53,64 @@ async def obter_usuario_publico_logado(token_payload: Annotated[schemas.TokenDat
 # --- Endpoints de Autenticação ---
 @app.post("/token", response_model=schemas.Token, tags=["Autenticação - Músicos"], summary="Login para Músicos")
 async def login_musico_para_obter_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Annotated[Session, Depends(get_db)]):
-    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
-    print("----------------------------------------------------")
-    print(f"[MAIN.PY - login_musico_para_obter_token] Tentativa de login recebida.")
-    print(f"[MAIN.PY - login_musico_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
-    # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
-    # print(f"[MAIN.PY - login_musico_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
-    print("----------------------------------------------------")
-    # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
+    # # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
+    # print("----------------------------------------------------")
+    # print(f"[MAIN.PY - login_musico_para_obter_token] Tentativa de login recebida.")
+    # print(f"[MAIN.PY - login_musico_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
+    # # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
+    # # print(f"[MAIN.PY - login_musico_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
+    # print("----------------------------------------------------")
+    # # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
 
     musico = crud.autenticar_musico(db, email=form_data.username, senha_texto_plano=form_data.password)
 
-    # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
-    print("----------------------------------------------------")
-    if musico:
-        print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico RETORNOU um músico (sucesso).")
-        print(f"[MAIN.PY - login_musico_para_obter_token] Detalhes do músico autenticado: ID={musico.id}, Email='{musico.email}', Nome Artístico='{musico.nome_artistico}'")
-    else:
-        print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico NÃO retornou um músico (falha na autenticação).")
-    print("----------------------------------------------------")
-    # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
+    # # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
+    # print("----------------------------------------------------")
+    # if musico:
+    #     print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico RETORNOU um músico (sucesso).")
+    #     print(f"[MAIN.PY - login_musico_para_obter_token] Detalhes do músico autenticado: ID={musico.id}, Email='{musico.email}', Nome Artístico='{musico.nome_artistico}'")
+    # else:
+    #     print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico NÃO retornou um músico (falha na autenticação).")
+    # print("----------------------------------------------------")
+    # # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
     
     if not musico: 
-        print(f"[MAIN.PY - login_musico_para_obter_token] Músico não autenticado. Levantando HTTPException 401.")
+        # print(f"[MAIN.PY - login_musico_para_obter_token] Músico não autenticado. Levantando HTTPException 401.") # Log de falha (pode ser útil)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
     
-    print(f"[MAIN.PY - login_musico_para_obter_token] Autenticação bem-sucedida para músico. Criando token de acesso para ID: {musico.id}.")
+    # print(f"[MAIN.PY - login_musico_para_obter_token] Autenticação bem-sucedida para músico. Criando token de acesso para ID: {musico.id}.") # Log de sucesso (pode ser útil)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(data={"sub": musico.email, "user_id": musico.id, "role": "musico"}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer", "user_id": musico.id, "email": musico.email, "role": "musico", "nome_exibicao": musico.nome_artistico}
 
 @app.post("/usuarios/token", response_model=schemas.Token, tags=["Autenticação - Fãs"], summary="Login para Usuários (Fãs)")
 async def login_fan_para_obter_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Annotated[Session, Depends(get_db)]):
-    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
-    print("----------------------------------------------------")
-    print(f"[MAIN.PY - login_fan_para_obter_token] Tentativa de login recebida.")
-    print(f"[MAIN.PY - login_fan_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
-    # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
-    # print(f"[MAIN.PY - login_fan_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
-    print("----------------------------------------------------")
-    # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
+    # # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
+    # print("----------------------------------------------------")
+    # print(f"[MAIN.PY - login_fan_para_obter_token] Tentativa de login recebida.")
+    # print(f"[MAIN.PY - login_fan_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
+    # # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
+    # # print(f"[MAIN.PY - login_fan_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
+    # print("----------------------------------------------------")
+    # # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
 
     usuario_publico = crud.autenticar_usuario_publico(db, email=form_data.username, senha_texto_plano=form_data.password)
     
-    # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
-    print("----------------------------------------------------")
-    if usuario_publico:
-        print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico RETORNOU um usuário (sucesso).")
-        print(f"[MAIN.PY - login_fan_para_obter_token] Detalhes do usuário autenticado: ID={usuario_publico.id}, Email='{usuario_publico.email}', Nome='{usuario_publico.nome_completo}'")
-    else:
-        print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico NÃO retornou um usuário (falha na autenticação).")
-    print("----------------------------------------------------")
-    # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
+    # # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
+    # print("----------------------------------------------------")
+    # if usuario_publico:
+    #     print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico RETORNOU um usuário (sucesso).")
+    #     print(f"[MAIN.PY - login_fan_para_obter_token] Detalhes do usuário autenticado: ID={usuario_publico.id}, Email='{usuario_publico.email}', Nome='{usuario_publico.nome_completo}'")
+    # else:
+    #     print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico NÃO retornou um usuário (falha na autenticação).")
+    # print("----------------------------------------------------")
+    # # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
 
     if not usuario_publico: 
-        print(f"[MAIN.PY - login_fan_para_obter_token] Usuário (fã) não autenticado. Levantando HTTPException 401.")
+        # print(f"[MAIN.PY - login_fan_para_obter_token] Usuário (fã) não autenticado. Levantando HTTPException 401.") # Log de falha (pode ser útil)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
     
-    print(f"[MAIN.PY - login_fan_para_obter_token] Autenticação bem-sucedida para fã. Criando token de acesso para ID: {usuario_publico.id}.")
+    # print(f"[MAIN.PY - login_fan_para_obter_token] Autenticação bem-sucedida para fã. Criando token de acesso para ID: {usuario_publico.id}.") # Log de sucesso (pode ser útil)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(data={"sub": usuario_publico.email, "user_id": usuario_publico.id, "role": "fan"}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer", "user_id": usuario_publico.id, "email": usuario_publico.email, "role": "fan", "nome_exibicao": usuario_publico.nome_completo or usuario_publico.email}
@@ -127,7 +128,7 @@ def criar_novo_musico(musico: schemas.MusicoCreate, db: Annotated[Session, Depen
     response_model=List[schemas.MusicoPublicProfile], 
     tags=["Músicos - Público"],
     summary="Listar músicos (perfis públicos)",
-    description="Retorna uma lista paginada de músicos ativos. Pode ser filtrado por nome artístico e/ou gênero." # Descrição atualizada
+    description="Retorna uma lista paginada de músicos ativos. Pode ser filtrado por nome artístico e/ou gênero."
 )
 def ler_musicos_publico(
     db: Annotated[Session, Depends(get_db)], 
@@ -139,24 +140,24 @@ def ler_musicos_publico(
         max_length=50, 
         description="Termo para buscar no nome artístico do músico (case-insensitive)"
     ),
-    genero: Optional[str] = Query( # <--- NOVO PARÂMETRO ADICIONADO
+    genero: Optional[str] = Query(
         default=None,
         min_length=1,
         max_length=50, 
         description="Filtrar músicos por um gênero musical específico (case-insensitive, busca por 'contém')"
     )
 ):
-    if search: 
-        print(f"API GET /musicos/ - Recebido termo de busca: '{search}'")
-    if genero: # <--- LOG PARA O NOVO PARÂMETRO
-        print(f"API GET /musicos/ - Recebido filtro de gênero: '{genero}'")
+    # if search: 
+    #     print(f"API GET /musicos/ - Recebido termo de busca: '{search}'")
+    # if genero: 
+    #     print(f"API GET /musicos/ - Recebido filtro de gênero: '{genero}'")
     
     musicos = crud.obter_musicos(
         db, 
         skip=skip, 
         limit=limit, 
         search_term=search, 
-        genero_filter=genero # <--- PASSANDO O NOVO PARÂMETRO PARA A FUNÇÃO CRUD
+        genero_filter=genero 
     ) 
     return musicos
 
@@ -177,7 +178,7 @@ async def atualizar_perfil_musico_logado(musico_update_payload: schemas.MusicoUp
 
 @app.put(
     "/musicos/me/foto_perfil", 
-    response_model=schemas.Musico, # Retorna o perfil do músico atualizado
+    response_model=schemas.Musico,
     tags=["Músicos - Perfil Logado"],
     summary="Upload da foto de perfil do músico logado",
     description="Permite que o músico autenticado faça upload ou atualize sua foto de perfil."
@@ -186,52 +187,43 @@ async def upload_foto_perfil_musico(
     musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)],
     db: Annotated[Session, Depends(get_db)],
     foto_arquivo: UploadFile = File(..., description="Arquivo da imagem de perfil (jpg, png)") 
-    # O "File(...)" torna este parâmetro parte do corpo da requisição como um upload de arquivo
 ):
-    # Validação simples do tipo de arquivo (pode ser mais robusta)
     allowed_extensions = {"png", "jpg", "jpeg"}
     file_extension = foto_arquivo.filename.split(".")[-1].lower() if "." in foto_arquivo.filename else ""
     if file_extension not in allowed_extensions:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de arquivo inválido. Apenas PNG, JPG, JPEG são permitidos.")
 
-    # Gerar um nome de arquivo único para evitar conflitos e por segurança
-    # Ex: user_IDDOMUSICO_UUID.extensao
     unique_filename_base = f"user_{musico_logado.id}_{uuid.uuid4()}"
     filename_with_ext = f"{unique_filename_base}.{file_extension}"
     
     file_path_on_server = f"app/static/profile_pics/{filename_with_ext}"
-    url_path_for_db = f"static/profile_pics/{filename_with_ext}" # Caminho a ser salvo no DB
+    url_path_for_db = f"static/profile_pics/{filename_with_ext}" 
 
     try:
-        # Salvar o arquivo no servidor
         with open(file_path_on_server, "wb") as buffer:
             shutil.copyfileobj(foto_arquivo.file, buffer)
     except Exception as e:
-        print(f"Erro ao salvar arquivo de foto: {e}")
+        # print(f"Erro ao salvar arquivo de foto: {e}") # Pode ser útil manter este para erros de I/O
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Não foi possível salvar a foto de perfil.")
     finally:
-        await foto_arquivo.close() # Sempre feche o arquivo após o uso
+        await foto_arquivo.close() 
 
-    # Se o músico já tinha uma foto, podemos deletar a antiga do sistema de arquivos (opcional)
     if musico_logado.foto_perfil_url:
-        old_file_path = f"app/{musico_logado.foto_perfil_url}" # Assume que a URL no DB é relativa a 'app/'
-        if os.path.exists(old_file_path) and old_file_path != file_path_on_server : # Não deleta se for o mesmo arquivo por algum motivo
+        old_file_path = f"app/{musico_logado.foto_perfil_url}" 
+        if os.path.exists(old_file_path) and old_file_path != file_path_on_server : 
             try:
                 os.remove(old_file_path)
-                print(f"Foto de perfil antiga '{old_file_path}' deletada.")
+                # print(f"Foto de perfil antiga '{old_file_path}' deletada.") # Log informativo
             except Exception as e_del:
-                print(f"Erro ao deletar foto antiga '{old_file_path}': {e_del}")
-                # Não lança exceção aqui, pois o upload da nova foi bem-sucedido.
+                # print(f"Erro ao deletar foto antiga '{old_file_path}': {e_del}") # Log de erro específico
+                pass # Não lança exceção aqui
 
-    # Atualizar o caminho da foto no banco de dados para o músico
     musico_atualizado = crud.atualizar_foto_perfil_musico(db, musico_id=musico_logado.id, foto_url=url_path_for_db)
     if not musico_atualizado:
-        # Isso não deveria acontecer se o musico_logado é válido
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Não foi possível atualizar o perfil do músico com a nova foto.")
     
-    print(f"Foto de perfil para músico ID {musico_logado.id} atualizada para: {url_path_for_db}")
-    return musico_atualizado # Retorna o músico com a URL da foto atualizada
-#                                ***** FIM DO NOVO ENDPOINT *****
+    # print(f"Foto de perfil para músico ID {musico_logado.id} atualizada para: {url_path_for_db}") # Log informativo
+    return musico_atualizado
 
 # --- Endpoints de Repertório ---
 @app.post("/repertorio/", response_model=schemas.ItemRepertorio, status_code=status.HTTP_201_CREATED, tags=["Repertório"], summary="Adicionar item ao repertório")
@@ -274,25 +266,22 @@ def ler_todos_os_shows_publico(
     db: Annotated[Session, Depends(get_db)], 
     skip: int = 0, 
     limit: int = 100,
-    # ***** NOVO PARÂMETRO DE FILTRO DE DATA *****
-    data_especifica: Optional[datetime.date] = Query( # Usando datetime.date para o tipo
+    data_especifica: Optional[datetime.date] = Query(
         default=None,
         description="Filtrar shows por uma data específica (YYYY-MM-DD). Se não fornecido, lista todos os futuros."
     )
-    # ***** FIM DO NOVO PARÂMETRO *****
 ):
-    if data_especifica: 
-        print(f"API GET /shows/ - Recebido filtro de data_especifica: '{data_especifica}'")
+    # if data_especifica: 
+    #     print(f"API GET /shows/ - Recebido filtro de data_especifica: '{data_especifica}'")
     
     shows = crud.obter_todos_os_shows(
         db=db, 
         skip=skip, 
         limit=limit, 
-        data_filtro=data_especifica # Passa o novo filtro para a função CRUD
+        data_filtro=data_especifica
     )
     return shows
 
-# CORRIGIDO: 'Annotated' no parâmetro db da linha 126 da sua imagem
 @app.get("/musicos/{musico_id}/shows/", response_model=List[schemas.Show], tags=["Shows - Público"], summary="Listar shows de um músico específico (público)")
 def ler_shows_de_um_musico_especifico_publico(musico_id: int, db: Annotated[Session, Depends(get_db)], skip: int = 0, limit: int = 100):
     musico = crud.obter_musico_por_id(db, musico_id=musico_id)
@@ -302,7 +291,7 @@ def ler_shows_de_um_musico_especifico_publico(musico_id: int, db: Annotated[Sess
 @app.get(
     "/shows/{show_id}", 
     response_model=schemas.Show, 
-    tags=["Shows - Público", "Shows - Detalhes"], # Pode adicionar mais tags se quiser
+    tags=["Shows - Público", "Shows - Detalhes"],
     summary="Obter detalhes de um show específico",
     description="Retorna os detalhes completos de um show específico pelo seu ID, incluindo informações do músico."
 )
@@ -310,18 +299,15 @@ def ler_detalhes_do_show(
     show_id: int, 
     db: Annotated[Session, Depends(get_db)]
 ):
-    print(f"API GET /shows/{show_id} - Recebido pedido para show ID: {show_id}")
+    # print(f"API GET /shows/{show_id} - Recebido pedido para show ID: {show_id}") # Log informativo
     db_show = crud.obter_show_por_id(db, show_id=show_id)
     if db_show is None:
-        print(f"API GET /shows/{show_id} - Show ID: {show_id} não encontrado.")
+        # print(f"API GET /shows/{show_id} - Show ID: {show_id} não encontrado.") # Log de "não encontrado"
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show não encontrado")
     
-    # Se o show for encontrado, o Pydantic o converterá para schemas.Show automaticamente
-    # já que o crud.obter_show_por_id já faz o joinedload do músico.
-    print(f"API GET /shows/{show_id} - Show encontrado: {db_show.local_nome}")
+    # print(f"API GET /shows/{show_id} - Show encontrado: {db_show.local_nome}") # Log informativo
     return db_show
 
-# CORRIGIDO: 'Annotated' nos parâmetros musico_logado e db da linha 128 da sua imagem
 @app.put("/shows/{show_id}", response_model=schemas.Show, tags=["Shows"], summary="Atualizar show (músico logado)")
 async def atualizar_show(show_id: int, show_update_payload: schemas.ShowUpdate, 
                          musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], 
@@ -330,7 +316,6 @@ async def atualizar_show(show_id: int, show_update_payload: schemas.ShowUpdate,
     if show_atualizado is None: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show não encontrado ou não pertence ao músico")
     return show_atualizado
 
-# CORRIGIDO: 'Annotated' nos parâmetros musico_logado e db (se aplicável, não visível na imagem, mas provável)
 @app.delete("/shows/{show_id}", tags=["Shows"], summary="Deletar show (músico logado)", status_code=status.HTTP_204_NO_CONTENT)
 async def deletar_show(show_id: int, 
                        musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], 
@@ -352,7 +337,7 @@ async def ler_usuario_publico_logado(usuario_atual: Annotated[models.UsuarioPubl
 
 @app.put(
     "/usuarios/me/", 
-    response_model=schemas.UsuarioPublico, # Retorna o perfil do fã atualizado
+    response_model=schemas.UsuarioPublico, 
     tags=["Usuários (Fãs) - Perfil Logado"],
     summary="Atualizar perfil do usuário (fã) logado",
     description="Permite que o fã autenticado atualize seus dados de perfil (ex: nome completo)."
@@ -362,10 +347,9 @@ async def atualizar_perfil_usuario_logado(
     usuario_logado: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)], 
     db: Annotated[Session, Depends(get_db)]
 ):
-    # Log para ver o payload recebido
-    print(f"API PUT /usuarios/me/ - Payload recebido: {usuario_update_payload.model_dump(exclude_unset=True)}")
+    # print(f"API PUT /usuarios/me/ - Payload recebido: {usuario_update_payload.model_dump(exclude_unset=True)}") # Log informativo
     
-    if not usuario_update_payload.model_dump(exclude_unset=True): # Verifica se o payload não está vazio
+    if not usuario_update_payload.model_dump(exclude_unset=True): 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nenhum dado fornecido para atualização."
@@ -376,9 +360,7 @@ async def atualizar_perfil_usuario_logado(
         usuario_db_obj=usuario_logado, 
         usuario_update_data=usuario_update_payload
     )
-    print(f"API PUT /usuarios/me/ - Usuário ID {usuario_atualizado.id} atualizado. Novo nome_exibicao para token: {usuario_atualizado.nome_completo or usuario_atualizado.email}")
-    # Nota: O token JWT não é reemitido aqui. O nome_exibicao no token existente
-    # permanecerá o antigo até o próximo login. A UI no Flutter pegará o nome atualizado do AuthProvider.
+    # print(f"API PUT /usuarios/me/ - Usuário ID {usuario_atualizado.id} atualizado. Novo nome_exibicao para token: {usuario_atualizado.nome_completo or usuario_atualizado.email}") # Log informativo
     return usuario_atualizado
 
 # --- Endpoints de Favoritos ---
