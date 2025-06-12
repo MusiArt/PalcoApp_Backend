@@ -255,15 +255,32 @@ def deletar_show_do_musico(db: Session, show_id: int, musico_id: int) -> Optiona
 
 # --- Funções CRUD para UsuarioPublico (Fãs) ---
 def obter_usuario_publico_por_email(db: Session, email: str) -> Optional[models.UsuarioPublico]:
-    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO ---
-    print(f"    [CRUD.PY - obter_usuario_publico_por_email] Buscando usuário (fã) com email: '{email}'")
-    usuario = db.query(models.UsuarioPublico).filter(models.UsuarioPublico.email == email).first()
-    if usuario:
-        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Usuário (fã) encontrado: ID={usuario.id}, Email='{usuario.email}'")
+    print(f"    [CRUD.PY - obter_usuario_publico_por_email] Buscando usuário (fã) com email (original): '{email}'")
+    
+    # Teste 1: Contar quantos usuários existem na tabela
+    total_usuarios = db.query(models.UsuarioPublico).count()
+    print(f"    [CRUD.PY - obter_usuario_publico_por_email] Total de usuários na tabela 'usuarios_publico': {total_usuarios}")
+
+    # Teste 2: Buscar usando ILIKE (case-insensitive)
+    email_param = email.lower() # Garante que o parâmetro de busca seja minúsculo
+    print(f"    [CRUD.PY - obter_usuario_publico_por_email] Buscando com ILIKE e email normalizado para minúsculas: '{email_param}'")
+    usuario_ilike = db.query(models.UsuarioPublico).filter(func.lower(models.UsuarioPublico.email) == email_param).first()
+    # Alternativamente, para ILIKE direto se o DB suportar bem:
+    # usuario_ilike = db.query(models.UsuarioPublico).filter(models.UsuarioPublico.email.ilike(email)).first()
+    
+    if usuario_ilike:
+        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Usuário (fã) ENCONTRADO com ILIKE: ID={usuario_ilike.id}, Email='{usuario_ilike.email}'")
     else:
-        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Usuário (fã) com email '{email}' NÃO encontrado.")
-    # --- FIM DOS PRINTS DE DEPURAÇÃO ---
-    return usuario
+        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Usuário (fã) com email '{email}' NÃO encontrado mesmo com ILIKE.")
+    
+    # Vamos retornar o resultado da busca original por enquanto, mas os prints acima nos darão pistas
+    usuario_original = db.query(models.UsuarioPublico).filter(models.UsuarioPublico.email == email).first()
+    if usuario_original:
+        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Resultado da busca ORIGINAL (==): ENCONTRADO - ID={usuario_original.id}, Email='{usuario_original.email}'")
+    else:
+        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Resultado da busca ORIGINAL (==): NÃO ENCONTRADO para email '{email}'")
+        
+    return usuario_original # Continue retornando o original para ver se o problema é só na condição
 
 def obter_usuario_publico_por_id(db: Session, usuario_id: int) -> Optional[models.UsuarioPublico]:
     return db.query(models.UsuarioPublico).options(
