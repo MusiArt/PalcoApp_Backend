@@ -52,16 +52,64 @@ async def obter_usuario_publico_logado(token_payload: Annotated[schemas.TokenDat
 # --- Endpoints de Autenticação ---
 @app.post("/token", response_model=schemas.Token, tags=["Autenticação - Músicos"], summary="Login para Músicos")
 async def login_musico_para_obter_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Annotated[Session, Depends(get_db)]):
+    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
+    print("----------------------------------------------------")
+    print(f"[MAIN.PY - login_musico_para_obter_token] Tentativa de login recebida.")
+    print(f"[MAIN.PY - login_musico_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
+    # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
+    # print(f"[MAIN.PY - login_musico_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
+    print("----------------------------------------------------")
+    # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
+
     musico = crud.autenticar_musico(db, email=form_data.username, senha_texto_plano=form_data.password)
-    if not musico: raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
+
+    # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
+    print("----------------------------------------------------")
+    if musico:
+        print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico RETORNOU um músico (sucesso).")
+        print(f"[MAIN.PY - login_musico_para_obter_token] Detalhes do músico autenticado: ID={musico.id}, Email='{musico.email}', Nome Artístico='{musico.nome_artistico}'")
+    else:
+        print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico NÃO retornou um músico (falha na autenticação).")
+    print("----------------------------------------------------")
+    # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
+    
+    if not musico: 
+        print(f"[MAIN.PY - login_musico_para_obter_token] Músico não autenticado. Levantando HTTPException 401.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
+    
+    print(f"[MAIN.PY - login_musico_para_obter_token] Autenticação bem-sucedida para músico. Criando token de acesso para ID: {musico.id}.")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(data={"sub": musico.email, "user_id": musico.id, "role": "musico"}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer", "user_id": musico.id, "email": musico.email, "role": "musico", "nome_exibicao": musico.nome_artistico}
 
 @app.post("/usuarios/token", response_model=schemas.Token, tags=["Autenticação - Fãs"], summary="Login para Usuários (Fãs)")
 async def login_fan_para_obter_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Annotated[Session, Depends(get_db)]):
+    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
+    print("----------------------------------------------------")
+    print(f"[MAIN.PY - login_fan_para_obter_token] Tentativa de login recebida.")
+    print(f"[MAIN.PY - login_fan_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
+    # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
+    # print(f"[MAIN.PY - login_fan_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
+    print("----------------------------------------------------")
+    # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
+
     usuario_publico = crud.autenticar_usuario_publico(db, email=form_data.username, senha_texto_plano=form_data.password)
-    if not usuario_publico: raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
+    
+    # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
+    print("----------------------------------------------------")
+    if usuario_publico:
+        print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico RETORNOU um usuário (sucesso).")
+        print(f"[MAIN.PY - login_fan_para_obter_token] Detalhes do usuário autenticado: ID={usuario_publico.id}, Email='{usuario_publico.email}', Nome='{usuario_publico.nome_completo}'")
+    else:
+        print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico NÃO retornou um usuário (falha na autenticação).")
+    print("----------------------------------------------------")
+    # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
+
+    if not usuario_publico: 
+        print(f"[MAIN.PY - login_fan_para_obter_token] Usuário (fã) não autenticado. Levantando HTTPException 401.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
+    
+    print(f"[MAIN.PY - login_fan_para_obter_token] Autenticação bem-sucedida para fã. Criando token de acesso para ID: {usuario_publico.id}.")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(data={"sub": usuario_publico.email, "user_id": usuario_publico.id, "role": "fan"}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer", "user_id": usuario_publico.id, "email": usuario_publico.email, "role": "fan", "nome_exibicao": usuario_publico.nome_completo or usuario_publico.email}

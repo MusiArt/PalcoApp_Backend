@@ -6,11 +6,19 @@ import datetime
 from sqlalchemy import func
 
 from . import models, schemas
-from .security import verificar_senha, obter_hash_da_senha
+from .security import verificar_senha, obter_hash_da_senha # Supondo que verificar_senha esteja aqui
 
 # --- Funções CRUD para Músicos ---
 def obter_musico_por_email(db: Session, email: str) -> Optional[models.Musico]:
-    return db.query(models.Musico).filter(models.Musico.email == email).first()
+    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO ---
+    print(f"    [CRUD.PY - obter_musico_por_email] Buscando músico com email: '{email}'")
+    musico = db.query(models.Musico).filter(models.Musico.email == email).first()
+    if musico:
+        print(f"    [CRUD.PY - obter_musico_por_email] Músico encontrado: ID={musico.id}, Email='{musico.email}'")
+    else:
+        print(f"    [CRUD.PY - obter_musico_por_email] Músico com email '{email}' NÃO encontrado.")
+    # --- FIM DOS PRINTS DE DEPURAÇÃO ---
+    return musico
 
 def atualizar_foto_perfil_musico(db: Session, musico_id: int, foto_url: str) -> Optional[models.Musico]:
     db_musico = obter_musico_por_id(db, musico_id=musico_id) # Reutiliza a função que já faz joinedload
@@ -71,11 +79,34 @@ def criar_musico(db: Session, musico: schemas.MusicoCreate) -> models.Musico:
     return db_musico
 
 def autenticar_musico(db: Session, email: str, senha_texto_plano: str) -> Optional[models.Musico]:
-    musico_no_banco = obter_musico_por_email(db, email=email)
+    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
+    print(f"  [CRUD.PY - autenticar_musico] Iniciando autenticação para email de MÚSICO: '{email}'")
+    # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
+    # print(f"  [CRUD.PY - autenticar_musico] Senha em texto plano recebida (MÚSICO): '{senha_texto_plano}'")
+    # --- FIM DOS PRINTS DE DEPURAÇÃO ---
+
+    musico_no_banco = obter_musico_por_email(db, email=email) # obter_musico_por_email já tem prints
+    
     if not musico_no_banco:
+        # O print de "NÃO encontrado" já está em obter_musico_por_email
         return None
-    if not verificar_senha(senha_texto_plano, musico_no_banco.hashed_password):
-        return None
+    
+    # --- INÍCIO DOS PRINTS APÓS ENCONTRAR MÚSICO (SE ENCONTRADO) ---
+    # O print de "ENCONTRADO" e detalhes já está em obter_musico_por_email
+    print(f"  [CRUD.PY - autenticar_musico] Senha HASHED armazenada para MÚSICO '{email}': '{musico_no_banco.hashed_password if hasattr(musico_no_banco, 'hashed_password') else 'N/A'}'")
+    # --- FIM DOS PRINTS APÓS ENCONTRAR MÚSICO ---
+
+    senha_correta = verificar_senha(senha_texto_plano, musico_no_banco.hashed_password)
+    
+    # --- INÍCIO DOS PRINTS APÓS VERIFICAR SENHA (MÚSICO) ---
+    print(f"  [CRUD.PY - autenticar_musico] Resultado da verificação de senha para MÚSICO '{email}' (senha_correta): {senha_correta}")
+    if not senha_correta:
+        print(f"  [CRUD.PY - autenticar_musico] Verificação de senha FALHOU para o MÚSICO '{email}'.")
+        return None 
+    else:
+        print(f"  [CRUD.PY - autenticar_musico] Verificação de senha BEM-SUCEDIDA para o MÚSICO '{email}'.")
+    # --- FIM DOS PRINTS APÓS VERIFICAR SENHA (MÚSICO) ---
+    
     return musico_no_banco
 
 def atualizar_musico(db: Session, musico_db_obj: models.Musico, musico_update_data: schemas.MusicoUpdate) -> models.Musico:
@@ -224,7 +255,15 @@ def deletar_show_do_musico(db: Session, show_id: int, musico_id: int) -> Optiona
 
 # --- Funções CRUD para UsuarioPublico (Fãs) ---
 def obter_usuario_publico_por_email(db: Session, email: str) -> Optional[models.UsuarioPublico]:
-    return db.query(models.UsuarioPublico).filter(models.UsuarioPublico.email == email).first()
+    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO ---
+    print(f"    [CRUD.PY - obter_usuario_publico_por_email] Buscando usuário (fã) com email: '{email}'")
+    usuario = db.query(models.UsuarioPublico).filter(models.UsuarioPublico.email == email).first()
+    if usuario:
+        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Usuário (fã) encontrado: ID={usuario.id}, Email='{usuario.email}'")
+    else:
+        print(f"    [CRUD.PY - obter_usuario_publico_por_email] Usuário (fã) com email '{email}' NÃO encontrado.")
+    # --- FIM DOS PRINTS DE DEPURAÇÃO ---
+    return usuario
 
 def obter_usuario_publico_por_id(db: Session, usuario_id: int) -> Optional[models.UsuarioPublico]:
     return db.query(models.UsuarioPublico).options(
@@ -247,11 +286,34 @@ def criar_usuario_publico(db: Session, usuario: schemas.UsuarioPublicoCreate) ->
     return db_usuario
 
 def autenticar_usuario_publico(db: Session, email: str, senha_texto_plano: str) -> Optional[models.UsuarioPublico]:
-    usuario_no_banco = obter_usuario_publico_por_email(db, email=email)
+    # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
+    print(f"  [CRUD.PY - autenticar_usuario_publico] Iniciando autenticação para email de FÃ: '{email}'")
+    # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
+    # print(f"  [CRUD.PY - autenticar_usuario_publico] Senha em texto plano recebida (FÃ): '{senha_texto_plano}'")
+    # --- FIM DOS PRINTS DE DEPURAÇÃO ---
+
+    usuario_no_banco = obter_usuario_publico_por_email(db, email=email) # obter_usuario_publico_por_email já tem prints
+    
     if not usuario_no_banco:
+        # O print de "NÃO encontrado" já está em obter_usuario_publico_por_email
         return None
-    if not verificar_senha(senha_texto_plano, usuario_no_banco.hashed_password):
-        return None
+    
+    # --- INÍCIO DOS PRINTS APÓS ENCONTRAR USUÁRIO (FÃ) (SE ENCONTRADO) ---
+    # O print de "ENCONTRADO" e detalhes já está em obter_usuario_publico_por_email
+    print(f"  [CRUD.PY - autenticar_usuario_publico] Senha HASHED armazenada para FÃ '{email}': '{usuario_no_banco.hashed_password if hasattr(usuario_no_banco, 'hashed_password') else 'N/A'}'")
+    # --- FIM DOS PRINTS APÓS ENCONTRAR USUÁRIO (FÃ) ---
+
+    senha_correta = verificar_senha(senha_texto_plano, usuario_no_banco.hashed_password)
+    
+    # --- INÍCIO DOS PRINTS APÓS VERIFICAR SENHA (FÃ) ---
+    print(f"  [CRUD.PY - autenticar_usuario_publico] Resultado da verificação de senha para FÃ '{email}' (senha_correta): {senha_correta}")
+    if not senha_correta:
+        print(f"  [CRUD.PY - autenticar_usuario_publico] Verificação de senha FALHOU para o FÃ '{email}'.")
+        return None 
+    else:
+        print(f"  [CRUD.PY - autenticar_usuario_publico] Verificação de senha BEM-SUCEDIDA para o FÃ '{email}'.")
+    # --- FIM DOS PRINTS APÓS VERIFICAR SENHA (FÃ) ---
+    
     return usuario_no_banco
 
 def atualizar_usuario_publico(
@@ -347,13 +409,17 @@ def obter_pedidos_feitos_por_fan(
     )
 
 def obter_pedido_musica_por_id(
-    db: Session, pedido_id: int, musico_id: int 
+    db: Session, pedido_id: int, musico_id: int # Alterado para aceitar musico_id, para segurança
 ) -> Optional[models.PedidoMusica]:
-    return (
-        db.query(models.PedidoMusica)
-        .filter(models.PedidoMusica.id == pedido_id, models.PedidoMusica.musico_id == musico_id)
-        .first()
-    )
+    # Modificado para garantir que o pedido pertença ao músico, se musico_id for fornecido.
+    # Se musico_id for None, ou se a intenção for buscar qualquer pedido (cuidado com isso),
+    # a lógica precisaria ser ajustada. Para o contexto de atualização de status pelo músico,
+    # é crucial que o pedido pertença a ele.
+    query = db.query(models.PedidoMusica).filter(models.PedidoMusica.id == pedido_id)
+    if musico_id is not None: # Verifica se musico_id foi passado
+        query = query.filter(models.PedidoMusica.musico_id == musico_id)
+    return query.first()
+
 
 def atualizar_status_pedido_musica(
     db: Session, pedido_db_obj: models.PedidoMusica, novo_status: str
