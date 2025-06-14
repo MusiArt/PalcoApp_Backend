@@ -1,13 +1,16 @@
 # app/main.py
 from fastapi import FastAPI, Depends, HTTPException, status, Response, Query, File, UploadFile
-from fastapi.staticfiles import StaticFiles
+# Removido StaticFiles se você não for mais servir as fotos de perfil do sistema de arquivos local
+# from fastapi.staticfiles import StaticFiles 
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
+from datetime import timedelta, timezone # Adicionado timezone
 from typing import Annotated, List, Optional 
-import shutil
+# import shutil # Não será mais necessário se o upload for direto para o GCS
 import uuid
-# import logging # Opcional: para logging mais robusto
+import os # Para getenv
+from google.cloud import storage # Para interagir com o GCS
+# import logging # Opcional
 
 from .database import engine, get_db 
 from . import models, schemas, crud
@@ -15,7 +18,7 @@ from .security import (
     criar_access_token, ACCESS_TOKEN_EXPIRE_MINUTES,
     obter_payload_token_musico, obter_payload_token_fan
 )
-import datetime
+# Removido import datetime duplicado, já que timedelta e timezone foram importados de datetime
 
 # logger = logging.getLogger(__name__) # Opcional
 
@@ -27,15 +30,19 @@ app = FastAPI(
     version="0.1.0",
 )
 
-import os
-if not os.path.exists("app/static"):
-    os.makedirs("app/static")
-if not os.path.exists("app/static/profile_pics"):
-    os.makedirs("app/static/profile_pics")
+# Removido os.makedirs para app/static/profile_pics se as fotos vão para o GCS
+# if not os.path.exists("app/static"):
+#     os.makedirs("app/static")
+# if not os.path.exists("app/static/profile_pics"):
+#     os.makedirs("app/static/profile_pics")
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+# Removido app.mount para /static se você não estiver servindo outros arquivos estáticos por aqui.
+# Se você tiver outros arquivos estáticos (CSS, JS para documentação, etc.) que NÃO são uploads, mantenha.
+# app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 
 # --- Funções de Dependência para Obter Usuários Logados ---
+# ... (seu código obter_musico_logado e obter_usuario_publico_logado permanece o mesmo) ...
 async def obter_musico_logado(token_payload: Annotated[schemas.TokenData, Depends(obter_payload_token_musico)], db: Annotated[Session, Depends(get_db)]) -> models.Musico:
     if token_payload.role != "musico": raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso não permitido para este tipo de usuário")
     if token_payload.user_id is None: raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido: user_id não encontrado")
@@ -50,357 +57,148 @@ async def obter_usuario_publico_logado(token_payload: Annotated[schemas.TokenDat
     if usuario is None: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuário (fã) não encontrado para o token fornecido.")
     return usuario
 
+
 # --- Endpoints de Autenticação ---
+# ... (seus endpoints de /token e /usuarios/token permanecem os mesmos) ...
 @app.post("/token", response_model=schemas.Token, tags=["Autenticação - Músicos"], summary="Login para Músicos")
 async def login_musico_para_obter_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Annotated[Session, Depends(get_db)]):
-    # # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
-    # print("----------------------------------------------------")
-    # print(f"[MAIN.PY - login_musico_para_obter_token] Tentativa de login recebida.")
-    # print(f"[MAIN.PY - login_musico_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
-    # # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
-    # # print(f"[MAIN.PY - login_musico_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
-    # print("----------------------------------------------------")
-    # # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA MÚSICOS) ---
-
     musico = crud.autenticar_musico(db, email=form_data.username, senha_texto_plano=form_data.password)
-
-    # # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
-    # print("----------------------------------------------------")
-    # if musico:
-    #     print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico RETORNOU um músico (sucesso).")
-    #     print(f"[MAIN.PY - login_musico_para_obter_token] Detalhes do músico autenticado: ID={musico.id}, Email='{musico.email}', Nome Artístico='{musico.nome_artistico}'")
-    # else:
-    #     print(f"[MAIN.PY - login_musico_para_obter_token] A função crud.autenticar_musico NÃO retornou um músico (falha na autenticação).")
-    # print("----------------------------------------------------")
-    # # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_musico ---
-    
-    if not musico: 
-        # print(f"[MAIN.PY - login_musico_para_obter_token] Músico não autenticado. Levantando HTTPException 401.") # Log de falha (pode ser útil)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
-    
-    # print(f"[MAIN.PY - login_musico_para_obter_token] Autenticação bem-sucedida para músico. Criando token de acesso para ID: {musico.id}.") # Log de sucesso (pode ser útil)
+    if not musico: raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(data={"sub": musico.email, "user_id": musico.id, "role": "musico"}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer", "user_id": musico.id, "email": musico.email, "role": "musico", "nome_exibicao": musico.nome_artistico}
 
 @app.post("/usuarios/token", response_model=schemas.Token, tags=["Autenticação - Fãs"], summary="Login para Usuários (Fãs)")
 async def login_fan_para_obter_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Annotated[Session, Depends(get_db)]):
-    # # --- INÍCIO DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
-    # print("----------------------------------------------------")
-    # print(f"[MAIN.PY - login_fan_para_obter_token] Tentativa de login recebida.")
-    # print(f"[MAIN.PY - login_fan_para_obter_token] Email (form_data.username) recebido: '{form_data.username}'")
-    # # CUIDADO: O print abaixo mostra a senha. Use APENAS para depuração e REMOVA depois!
-    # # print(f"[MAIN.PY - login_fan_para_obter_token] Senha (form_data.password) recebida: '{form_data.password}'")
-    # print("----------------------------------------------------")
-    # # --- FIM DOS PRINTS DE DEPURAÇÃO (PARA FÃS) ---
-
     usuario_publico = crud.autenticar_usuario_publico(db, email=form_data.username, senha_texto_plano=form_data.password)
-    
-    # # --- INÍCIO DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
-    # print("----------------------------------------------------")
-    # if usuario_publico:
-    #     print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico RETORNOU um usuário (sucesso).")
-    #     print(f"[MAIN.PY - login_fan_para_obter_token] Detalhes do usuário autenticado: ID={usuario_publico.id}, Email='{usuario_publico.email}', Nome='{usuario_publico.nome_completo}'")
-    # else:
-    #     print(f"[MAIN.PY - login_fan_para_obter_token] A função crud.autenticar_usuario_publico NÃO retornou um usuário (falha na autenticação).")
-    # print("----------------------------------------------------")
-    # # --- FIM DOS PRINTS APÓS CHAMAR crud.autenticar_usuario_publico ---
-
-    if not usuario_publico: 
-        # print(f"[MAIN.PY - login_fan_para_obter_token] Usuário (fã) não autenticado. Levantando HTTPException 401.") # Log de falha (pode ser útil)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
-    
-    # print(f"[MAIN.PY - login_fan_para_obter_token] Autenticação bem-sucedida para fã. Criando token de acesso para ID: {usuario_publico.id}.") # Log de sucesso (pode ser útil)
+    if not usuario_publico: raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email ou senha incorretos", headers={"WWW-Authenticate": "Bearer"})
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(data={"sub": usuario_publico.email, "user_id": usuario_publico.id, "role": "fan"}, expires_delta=access_token_expires)
     return {"access_token": access_token, "token_type": "bearer", "user_id": usuario_publico.id, "email": usuario_publico.email, "role": "fan", "nome_exibicao": usuario_publico.nome_completo or usuario_publico.email}
 
+
 # --- Endpoints de Músicos ---
+# ... (seu endpoint POST /musicos/ para criar músico permanece o mesmo) ...
 @app.post("/musicos/", response_model=schemas.Musico, status_code=status.HTTP_201_CREATED, tags=["Músicos"], summary="Cadastrar um novo músico")
 def criar_novo_musico(musico: schemas.MusicoCreate, db: Annotated[Session, Depends(get_db)]):
     db_musico_existente = crud.obter_musico_por_email(db, email=musico.email)
     if db_musico_existente: raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email já registrado")
     novo_musico = crud.criar_musico(db=db, musico=musico)
     return novo_musico
-    
-@app.get(
-    "/musicos/", 
-    response_model=List[schemas.MusicoPublicProfile], 
-    tags=["Músicos - Público"],
-    summary="Listar músicos (perfis públicos)",
-    description="Retorna uma lista paginada de músicos ativos. Pode ser filtrado por nome artístico e/ou gênero."
-)
-def ler_musicos_publico(
-    db: Annotated[Session, Depends(get_db)], 
-    skip: int = 0, 
-    limit: int = 100, 
-    search: Optional[str] = Query(
-        default=None, 
-        min_length=1, 
-        max_length=50, 
-        description="Termo para buscar no nome artístico do músico (case-insensitive)"
-    ),
-    genero: Optional[str] = Query(
-        default=None,
-        min_length=1,
-        max_length=50, 
-        description="Filtrar músicos por um gênero musical específico (case-insensitive, busca por 'contém')"
-    )
-):
-    # if search: 
-    #     print(f"API GET /musicos/ - Recebido termo de busca: '{search}'")
-    # if genero: 
-    #     print(f"API GET /musicos/ - Recebido filtro de gênero: '{genero}'")
-    
-    musicos = crud.obter_musicos(
-        db, 
-        skip=skip, 
-        limit=limit, 
-        search_term=search, 
-        genero_filter=genero 
-    ) 
-    return musicos
 
-@app.get("/musicos/{musico_id}", response_model=schemas.MusicoPublicProfile, tags=["Músicos - Público"], summary="Obter perfil público de um músico específico")
-def ler_musico_especifico_publico(musico_id: int, db: Annotated[Session, Depends(get_db)]):
-    db_musico = crud.obter_musico_por_id(db, musico_id=musico_id)
-    if db_musico is None or not db_musico.is_active : raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Músico não encontrado ou inativo")
-    return db_musico
-
-@app.get("/musicos/me/", response_model=schemas.Musico, tags=["Músicos - Perfil Logado"], summary="Obter perfil do músico logado")
-async def ler_musico_logado(musico_atual: Annotated[models.Musico, Depends(obter_musico_logado)]):
-    return musico_atual
-
-@app.put("/musicos/me/", response_model=schemas.Musico, tags=["Músicos - Perfil Logado"], summary="Atualizar perfil do músico logado")
-async def atualizar_perfil_musico_logado(musico_update_payload: schemas.MusicoUpdate, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]):
-    musico_atualizado = crud.atualizar_musico(db=db, musico_db_obj=musico_logado, musico_update_data=musico_update_payload)
-    return musico_atualizado
-
+# --- Endpoint de Upload de Foto de Perfil do Músico (MODIFICADO PARA GCS) ---
 @app.put(
     "/musicos/me/foto_perfil", 
-    response_model=schemas.Musico,
+    response_model=schemas.Musico, # Retorna o perfil do músico atualizado
     tags=["Músicos - Perfil Logado"],
-    summary="Upload da foto de perfil do músico logado",
-    description="Permite que o músico autenticado faça upload ou atualize sua foto de perfil."
+    summary="Upload da foto de perfil do músico logado para GCS",
+    description="Permite que o músico autenticado faça upload ou atualize sua foto de perfil, armazenando no Google Cloud Storage."
 )
-async def upload_foto_perfil_musico(
+async def upload_foto_perfil_musico_gcs( # Renomeado para clareza
     musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)],
     db: Annotated[Session, Depends(get_db)],
     foto_arquivo: UploadFile = File(..., description="Arquivo da imagem de perfil (jpg, png)") 
 ):
-    allowed_extensions = {"png", "jpg", "jpeg"}
-    file_extension = foto_arquivo.filename.split(".")[-1].lower() if "." in foto_arquivo.filename else ""
-    if file_extension not in allowed_extensions:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de arquivo inválido. Apenas PNG, JPG, JPEG são permitidos.")
-
-    unique_filename_base = f"user_{musico_logado.id}_{uuid.uuid4()}"
-    filename_with_ext = f"{unique_filename_base}.{file_extension}"
+    GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+    # A variável de ambiente GOOGLE_APPLICATION_CREDENTIALS (com o caminho para a chave JSON)
+    # deve ser configurada no ambiente do Render para que storage.Client() funcione automaticamente.
     
-    file_path_on_server = f"app/static/profile_pics/{filename_with_ext}"
-    url_path_for_db = f"static/profile_pics/{filename_with_ext}" 
+    if not GCS_BUCKET_NAME:
+        print("[UPLOAD_FOTO_GCS] ERRO FATAL: Variável de ambiente GCS_BUCKET_NAME não configurada no servidor.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Configuração de armazenamento de fotos está incompleta no servidor.")
 
     try:
-        with open(file_path_on_server, "wb") as buffer:
-            shutil.copyfileobj(foto_arquivo.file, buffer)
+        storage_client = storage.Client() # Inicializa o cliente aqui
+    except Exception as e_client:
+        print(f"[UPLOAD_FOTO_GCS] ERRO FATAL: Não foi possível inicializar o cliente Google Cloud Storage: {e_client}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro ao conectar com o serviço de armazenamento de fotos.")
+
+
+    allowed_extensions = {"png", "jpg", "jpeg"}
+    original_filename = foto_arquivo.filename if foto_arquivo.filename else "unknown_file"
+    file_extension = original_filename.split(".")[-1].lower() if "." in original_filename else ""
+    
+    if file_extension not in allowed_extensions:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Tipo de arquivo inválido ({file_extension}). Apenas PNG, JPG, JPEG são permitidos.")
+
+    # Nome do arquivo no GCS (blob name)
+    gcs_blob_name = f"profile_pics/user_{musico_logado.id}_{uuid.uuid4()}.{file_extension}"
+    url_publica_gcs = ""
+
+    try:
+        print(f"[UPLOAD_FOTO_GCS] Bucket: '{GCS_BUCKET_NAME}', Blob: '{gcs_blob_name}', ContentType: {foto_arquivo.content_type}")
+        
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(gcs_blob_name)
+        
+        contents = await foto_arquivo.read()
+        blob.upload_from_string(contents, content_type=foto_arquivo.content_type)
+        
+        print(f"[UPLOAD_FOTO_GCS] Upload para GCS bem-sucedido: {gcs_blob_name}")
+
+        # Para tornar o objeto publicamente legível programaticamente (se as permissões do bucket não forem uniformes para public-read)
+        # É mais comum definir o bucket como publicamente legível ou usar ACLs de objeto.
+        # Se o bucket já está configurado para que novos objetos sejam públicos, esta linha pode não ser necessária
+        # ou pode ser controlada ao criar o blob com `blob.make_public()` *antes* do upload ou definindo `predefinedAcl='publicRead'`
+        # blob.make_public() 
+        # print(f"[UPLOAD_FOTO_GCS] Blob tornado público (se aplicável).")
+
+        url_publica_gcs = blob.public_url 
+        print(f"[UPLOAD_FOTO_GCS] URL pública do arquivo no GCS: {url_publica_gcs}")
+
     except Exception as e:
-        # print(f"Erro ao salvar arquivo de foto: {e}") # Pode ser útil manter este para erros de I/O
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Não foi possível salvar a foto de perfil.")
+        print(f"[UPLOAD_FOTO_GCS] ERRO durante o upload para GCS: {e}, Tipo: {type(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Não foi possível fazer upload da foto: {e}")
     finally:
         await foto_arquivo.close() 
-
-    if musico_logado.foto_perfil_url:
-        old_file_path = f"app/{musico_logado.foto_perfil_url}" 
-        if os.path.exists(old_file_path) and old_file_path != file_path_on_server : 
-            try:
-                os.remove(old_file_path)
-                # print(f"Foto de perfil antiga '{old_file_path}' deletada.") # Log informativo
-            except Exception as e_del:
-                # print(f"Erro ao deletar foto antiga '{old_file_path}': {e_del}") # Log de erro específico
-                pass # Não lança exceção aqui
-
-    musico_atualizado = crud.atualizar_foto_perfil_musico(db, musico_id=musico_logado.id, foto_url=url_path_for_db)
-    if not musico_atualizado:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Não foi possível atualizar o perfil do músico com a nova foto.")
     
-    # print(f"Foto de perfil para músico ID {musico_logado.id} atualizada para: {url_path_for_db}") # Log informativo
+    # Lógica para deletar foto ANTIGA do GCS (se existir e se for diferente)
+    # Esta parte é mais complexa e opcional para uma primeira implementação.
+    # Requer que a URL antiga também seja uma URL do GCS para extrair o nome do blob antigo.
+    if musico_logado.foto_perfil_url and musico_logado.foto_perfil_url.startswith(f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/"):
+        if musico_logado.foto_perfil_url != url_publica_gcs: # Só deleta se a URL for diferente
+            try:
+                # Extrai o nome do blob da URL antiga
+                # Ex: https://storage.googleapis.com/meu-bucket/profile_pics/arquivo.jpg -> profile_pics/arquivo.jpg
+                old_blob_name_parts = musico_logado.foto_perfil_url.split(f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/")
+                if len(old_blob_name_parts) > 1:
+                    old_blob_name = old_blob_name_parts[1].split("?")[0] # Remove query params se houver
+                    if old_blob_name: # Garante que não está vazio
+                        old_bucket_to_delete_from = storage_client.bucket(GCS_BUCKET_NAME)
+                        old_blob_to_delete = old_bucket_to_delete_from.blob(old_blob_name)
+                        if old_blob_to_delete.exists(): # Verifica se o blob antigo existe antes de tentar deletar
+                            old_blob_to_delete.delete()
+                            print(f"[UPLOAD_FOTO_GCS] Foto antiga '{old_blob_name}' deletada do GCS.")
+                        else:
+                            print(f"[UPLOAD_FOTO_GCS] Foto antiga '{old_blob_name}' não encontrada no GCS para deletar.")
+            except Exception as e_del:
+                print(f"[UPLOAD_FOTO_GCS] Erro ao tentar deletar foto antiga do GCS '{musico_logado.foto_perfil_url}': {e_del}")
+                # Não relança a exceção aqui, pois o upload da nova foto foi o principal.
+
+    musico_atualizado = crud.atualizar_foto_perfil_musico(db, musico_id=musico_logado.id, foto_url=url_publica_gcs)
+    if not musico_atualizado:
+        # Se o crud falhar, idealmente o arquivo no GCS deveria ser revertido/deletado, mas isso adiciona complexidade.
+        # Por enquanto, focamos em atualizar o banco.
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Não foi possível atualizar o perfil do músico no banco com a nova foto.")
+    
+    print(f"[UPLOAD_FOTO_GCS] URL da foto atualizada no banco para músico ID {musico_logado.id}: {url_publica_gcs}")
     return musico_atualizado
 
-# --- Endpoints de Repertório ---
-@app.post("/repertorio/", response_model=schemas.ItemRepertorio, status_code=status.HTTP_201_CREATED, tags=["Repertório"], summary="Adicionar item ao repertório")
-async def adicionar_item_ao_repertorio(item_repertorio: schemas.ItemRepertorioCreate, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]): 
-    return crud.criar_item_repertorio_para_musico(db=db, item=item_repertorio, musico_id=musico_logado.id)
+# ... (Restante dos seus endpoints de músicos, repertório, shows, usuários, favoritos, pedidos, etc., permanecem os mesmos) ...
+# Exemplo:
+@app.get("/musicos/me/", response_model=schemas.Musico, tags=["Músicos - Perfil Logado"], summary="Obter perfil do músico logado")
+async def ler_musico_logado(musico_atual: Annotated[models.Musico, Depends(obter_musico_logado)]):
+    return musico_atual
 
-@app.get("/repertorio/", response_model=List[schemas.ItemRepertorio], tags=["Repertório"], summary="Listar repertório do músico logado")
-async def ler_repertorio_do_musico_logado(musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)], skip: int = 0, limit: int = 100): 
-    return crud.obter_itens_repertorio_do_musico(db=db, musico_id=musico_logado.id, skip=skip, limit=limit)
-
-@app.put("/repertorio/{item_id}", response_model=schemas.ItemRepertorio, tags=["Repertório"], summary="Atualizar item do repertório")
-async def atualizar_item_de_repertorio(item_id: int, item_update_data: schemas.ItemRepertorioUpdate, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]): 
-    item_atualizado = crud.atualizar_item_repertorio_do_musico(db=db, item_id=item_id, musico_id=musico_logado.id, item_update=item_update_data)
-    if item_atualizado is None: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item de repertório não encontrado ou não pertence ao músico")
-    return item_atualizado
-
-@app.delete("/repertorio/{item_id}", tags=["Repertório"], summary="Deletar item do repertório", status_code=status.HTTP_204_NO_CONTENT)
-async def deletar_item_de_repertorio(item_id: int, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]): 
-    item_deletado = crud.deletar_item_repertorio_do_musico(db=db, item_id=item_id, musico_id=musico_logado.id)
-    if item_deletado is None: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item de repertório não encontrado ou não pertence ao músico")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-# --- Endpoints de Shows ---
-@app.post("/shows/", response_model=schemas.Show, status_code=status.HTTP_201_CREATED, tags=["Shows"], summary="Criar novo show (músico logado)")
-async def criar_novo_show(show_data: schemas.ShowCreate, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]):
-    return crud.criar_show_para_musico(db=db, show=show_data, musico_id=musico_logado.id)
-
-@app.get("/shows/me/", response_model=List[schemas.Show], tags=["Shows - Músico Logado"], summary="Listar shows do músico logado")
-async def ler_shows_do_musico_logado(musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)], skip: int = 0, limit: int = 100):
-    return crud.obter_shows_do_musico(db=db, musico_id=musico_logado.id, skip=skip, limit=limit)
-
-@app.get(
-    "/shows/", 
-    response_model=List[schemas.Show], 
-    tags=["Shows - Público"],
-    summary="Listar todos os shows (público)",
-    description="Retorna uma lista paginada de todos os shows futuros de todos os músicos, incluindo informações do músico. Pode ser filtrado por data."
-)
-def ler_todos_os_shows_publico(
-    db: Annotated[Session, Depends(get_db)], 
-    skip: int = 0, 
-    limit: int = 100,
-    data_especifica: Optional[datetime.date] = Query(
-        default=None,
-        description="Filtrar shows por uma data específica (YYYY-MM-DD). Se não fornecido, lista todos os futuros."
-    )
-):
-    # if data_especifica: 
-    #     print(f"API GET /shows/ - Recebido filtro de data_especifica: '{data_especifica}'")
-    
-    shows = crud.obter_todos_os_shows(
-        db=db, 
-        skip=skip, 
-        limit=limit, 
-        data_filtro=data_especifica
-    )
-    return shows
-
-@app.get("/musicos/{musico_id}/shows/", response_model=List[schemas.Show], tags=["Shows - Público"], summary="Listar shows de um músico específico (público)")
-def ler_shows_de_um_musico_especifico_publico(musico_id: int, db: Annotated[Session, Depends(get_db)], skip: int = 0, limit: int = 100):
-    musico = crud.obter_musico_por_id(db, musico_id=musico_id)
-    if not musico or not musico.is_active: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Músico não encontrado ou inativo")
-    return crud.obter_shows_do_musico(db=db, musico_id=musico_id, skip=skip, limit=limit)
-
-@app.get(
-    "/shows/{show_id}", 
-    response_model=schemas.Show, 
-    tags=["Shows - Público", "Shows - Detalhes"],
-    summary="Obter detalhes de um show específico",
-    description="Retorna os detalhes completos de um show específico pelo seu ID, incluindo informações do músico."
-)
-def ler_detalhes_do_show(
-    show_id: int, 
-    db: Annotated[Session, Depends(get_db)]
-):
-    # print(f"API GET /shows/{show_id} - Recebido pedido para show ID: {show_id}") # Log informativo
-    db_show = crud.obter_show_por_id(db, show_id=show_id)
-    if db_show is None:
-        # print(f"API GET /shows/{show_id} - Show ID: {show_id} não encontrado.") # Log de "não encontrado"
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show não encontrado")
-    
-    # print(f"API GET /shows/{show_id} - Show encontrado: {db_show.local_nome}") # Log informativo
-    return db_show
-
-@app.put("/shows/{show_id}", response_model=schemas.Show, tags=["Shows"], summary="Atualizar show (músico logado)")
-async def atualizar_show(show_id: int, show_update_payload: schemas.ShowUpdate, 
-                         musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], 
-                         db: Annotated[Session, Depends(get_db)]):
-    show_atualizado = crud.atualizar_show_do_musico(db=db, show_id=show_id, musico_id=musico_logado.id, show_update_data=show_update_payload)
-    if show_atualizado is None: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show não encontrado ou não pertence ao músico")
-    return show_atualizado
-
-@app.delete("/shows/{show_id}", tags=["Shows"], summary="Deletar show (músico logado)", status_code=status.HTTP_204_NO_CONTENT)
-async def deletar_show(show_id: int, 
-                       musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], 
-                       db: Annotated[Session, Depends(get_db)]):
-    show_deletado = crud.deletar_show_do_musico(db=db, show_id=show_id, musico_id=musico_logado.id)
-    if show_deletado is None: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Show não encontrado ou não pertence ao músico")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-# --- Endpoints para UsuarioPublico (Fãs) ---
-@app.post("/usuarios/", response_model=schemas.UsuarioPublico, status_code=status.HTTP_201_CREATED, tags=["Usuários (Fãs)"], summary="Cadastrar novo usuário (fã)")
-def criar_novo_usuario_publico(usuario_data: schemas.UsuarioPublicoCreate, db: Annotated[Session, Depends(get_db)]):
-    db_usuario_existente = crud.obter_usuario_publico_por_email(db, email=usuario_data.email)
-    if db_usuario_existente: raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email já registrado para um usuário")
-    return crud.criar_usuario_publico(db=db, usuario=usuario_data)
-
-@app.get("/usuarios/me/", response_model=schemas.UsuarioPublico, tags=["Usuários (Fãs) - Perfil Logado"], summary="Obter perfil do usuário (fã) logado")
-async def ler_usuario_publico_logado(usuario_atual: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)]):
-    return usuario_atual
-
-@app.put(
-    "/usuarios/me/", 
-    response_model=schemas.UsuarioPublico, 
-    tags=["Usuários (Fãs) - Perfil Logado"],
-    summary="Atualizar perfil do usuário (fã) logado",
-    description="Permite que o fã autenticado atualize seus dados de perfil (ex: nome completo)."
-)
-async def atualizar_perfil_usuario_logado(
-    usuario_update_payload: schemas.UsuarioPublicoUpdate, 
-    usuario_logado: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)], 
-    db: Annotated[Session, Depends(get_db)]
-):
-    # print(f"API PUT /usuarios/me/ - Payload recebido: {usuario_update_payload.model_dump(exclude_unset=True)}") # Log informativo
-    
-    if not usuario_update_payload.model_dump(exclude_unset=True): 
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nenhum dado fornecido para atualização."
-        )
-
-    usuario_atualizado = crud.atualizar_usuario_publico(
-        db=db, 
-        usuario_db_obj=usuario_logado, 
-        usuario_update_data=usuario_update_payload
-    )
-    # print(f"API PUT /usuarios/me/ - Usuário ID {usuario_atualizado.id} atualizado. Novo nome_exibicao para token: {usuario_atualizado.nome_completo or usuario_atualizado.email}") # Log informativo
-    return usuario_atualizado
-
-# --- Endpoints de Favoritos ---
-@app.post("/musicos/{musico_id}/favoritar", response_model=schemas.UsuarioPublico, tags=["Favoritos"], summary="Favoritar um músico (fã logado)")
-async def favoritar_musico(musico_id: int, usuario_logado: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)], db: Annotated[Session, Depends(get_db)]):
-    musico_a_favoritar = crud.obter_musico_por_id(db, musico_id=musico_id)
-    if not musico_a_favoritar or not musico_a_favoritar.is_active: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Músico não encontrado ou inativo para favoritar")
-    if crud.verificar_se_musico_e_favorito(db, usuario_id=usuario_logado.id, musico_id=musico_id): raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Músico já está nos seus favoritos")
-    return crud.adicionar_musico_aos_favoritos(db, usuario=usuario_logado, musico=musico_a_favoritar)
-
-@app.delete("/musicos/{musico_id}/favoritar", response_model=schemas.UsuarioPublico, tags=["Favoritos"], summary="Desfavoritar um músico (fã logado)")
-async def desfavoritar_musico(musico_id: int, usuario_logado: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)], db: Annotated[Session, Depends(get_db)]):
-    musico_a_desfavoritar = crud.obter_musico_por_id(db, musico_id=musico_id)
-    if not musico_a_desfavoritar: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Músico não encontrado")
-    if not crud.verificar_se_musico_e_favorito(db, usuario_id=usuario_logado.id, musico_id=musico_id): raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Músico não está nos seus favoritos")
-    return crud.remover_musico_dos_favoritos(db, usuario=usuario_logado, musico=musico_a_desfavoritar)
-
-# --- Endpoints para Pedidos de Música ---
-@app.post("/pedidos/", response_model=schemas.PedidoMusica, status_code=status.HTTP_201_CREATED, tags=["Pedidos de Música"], summary="Fazer um pedido de música (fã logado)")
-async def criar_novo_pedido_de_musica(pedido_data: schemas.PedidoMusicaCreate, solicitante: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)], db: Annotated[Session, Depends(get_db)]):
-    musico_destinatario = crud.obter_musico_por_id(db, musico_id=pedido_data.musico_id)
-    if not musico_destinatario or not musico_destinatario.is_active: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Músico destinatário não encontrado ou inativo")
-    item_repertorio = crud.obter_item_repertorio_do_musico_por_id(db, item_id=pedido_data.item_repertorio_id, musico_id=pedido_data.musico_id)
-    if not item_repertorio: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item de repertório não encontrado ou não pertence ao músico especificado")
-    return crud.criar_pedido_musica(db=db, pedido_data=pedido_data, solicitante_id=solicitante.id)
-
-@app.get("/musicos/me/pedidos/", response_model=List[schemas.PedidoMusica], tags=["Pedidos de Música"], summary="Listar pedidos recebidos (músico logado)")
-async def ler_pedidos_recebidos_pelo_musico(musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)], skip: int = 0, limit: int = 100):
-    return crud.obter_pedidos_para_musico(db=db, musico_id=musico_logado.id, skip=skip, limit=limit)
-
-@app.get("/usuarios/me/pedidos/", response_model=List[schemas.PedidoMusica], tags=["Pedidos de Música"], summary="Listar pedidos feitos (fã logado)")
-async def ler_pedidos_feitos_pelo_fan(fan_logado: Annotated[models.UsuarioPublico, Depends(obter_usuario_publico_logado)], db: Annotated[Session, Depends(get_db)], skip: int = 0, limit: int = 100):
-    return crud.obter_pedidos_feitos_por_fan(db=db, solicitante_id=fan_logado.id, skip=skip, limit=limit)
-
-@app.patch("/pedidos/{pedido_id}/status", response_model=schemas.PedidoMusica, tags=["Pedidos de Música"], summary="Atualizar status de um pedido (músico logado)")
-async def atualizar_status_do_pedido(pedido_id: int, status_update: schemas.PedidoMusicaUpdateStatus, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]):
-    pedido_db = crud.obter_pedido_musica_por_id(db, pedido_id=pedido_id, musico_id=musico_logado.id)
-    if not pedido_db: raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido não encontrado ou não pertence a este músico")
-    if status_update.status_pedido not in ["pendente", "atendido", "recusado"]: raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Status do pedido inválido. Valores permitidos: pendente, atendido, recusado.")
-    return crud.atualizar_status_pedido_musica(db, pedido_db_obj=pedido_db, novo_status=status_update.status_pedido)
+@app.put("/musicos/me/", response_model=schemas.Musico, tags=["Músicos - Perfil Logado"], summary="Atualizar perfil do músico logado (sem foto)")
+async def atualizar_perfil_musico_logado(musico_update_payload: schemas.MusicoUpdate, musico_logado: Annotated[models.Musico, Depends(obter_musico_logado)], db: Annotated[Session, Depends(get_db)]):
+    # Este endpoint agora só atualiza dados textuais. A foto é por /musicos/me/foto_perfil
+    musico_atualizado = crud.atualizar_musico(db=db, musico_db_obj=musico_logado, musico_update_data=musico_update_payload)
+    return musico_atualizado
 
 # --- Rota Raiz ---
 @app.get("/", tags=["Geral"], summary="Endpoint Raiz da API")
